@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Html5Qrcode, Html5QrcodeScanner, Html5QrcodeScanType, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { 
   Camera, 
   CameraOff, 
@@ -32,7 +32,32 @@ const QRCodeScanner: React.FC = () => {
 
   const isGetmarMode = new URLSearchParams(window.location.search).get('id') === 'getmar';
 
+  // Check for secure context (HTTPS or localhost)
   useEffect(() => {
+    if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+      console.warn('Camera access requires a secure context (HTTPS or localhost).');
+    }
+  }, []);
+
+  const handleScanSuccess = useCallback((decodedText: string) => {
+    setState(prev => ({ ...prev, lastResult: decodedText, error: null }));
+  }, []);
+
+  const handleScanError = useCallback((error: string) => {
+    console.error('QR Code scan error:', error);
+    if (error.includes('NotAllowedError')) {
+      setState(prev => ({ ...prev, error: 'Camera access denied. Please allow camera access and try again.' }));
+    } else if (error.includes('NotFoundError')) {
+      setState(prev => ({ ...prev, error: 'No camera found. Please ensure your device has a camera.' }));
+    } else if (error.includes('NotReadableError')) {
+      setState(prev => ({ ...prev, error: 'Camera not readable. Please try restarting your browser.' }));
+    } else {
+      setState(prev => ({ ...prev, error: 'Failed to access camera. Please check camera permissions.' }));
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initialize scanner only if scanning is enabled
     if (!scanner && state.isScanning) {
       const qrScanner = new Html5QrcodeScanner(
         'qr-reader',
@@ -40,6 +65,12 @@ const QRCodeScanner: React.FC = () => {
           fps: 10,
           qrbox: { width: 250, height: 250 },
           aspectRatio: 1.0,
+          showTorchButtonIfSupported: true,
+          showZoomSliderIfSupported: true,
+          defaultZoomValueIfSupported: 2,
+          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
+          rememberLastUsedCamera: true,
+          supportedScanTypes: [ Html5QrcodeScanType.SCAN_TYPE_CAMERA ]
         },
         false
       );
@@ -47,12 +78,13 @@ const QRCodeScanner: React.FC = () => {
       qrScanner.render(handleScanSuccess, handleScanError);
     }
 
+    // Cleanup function to clear the scanner on unmount or when scanner stops
     return () => {
       if (scanner) {
         scanner.clear().catch(console.error);
       }
     };
-  }, [state.isScanning]);
+  }, [state.isScanning, scanner, handleScanError, handleScanSuccess]);
 
   useEffect(() => {
     if (state.copySuccess) {
@@ -63,15 +95,6 @@ const QRCodeScanner: React.FC = () => {
     }
   }, [state.copySuccess]);
 
-  const handleScanSuccess = (decodedText: string) => {
-    setState(prev => ({ ...prev, lastResult: decodedText, error: null }));
-  };
-
-  const handleScanError = (error: string) => {
-    console.error('QR Code scan error:', error);
-    setState(prev => ({ ...prev, error: 'Failed to scan QR code' }));
-  };
-
   const toggleScanner = async () => {
     if (state.isScanning) {
       if (scanner) {
@@ -80,7 +103,8 @@ const QRCodeScanner: React.FC = () => {
       }
       setState(prev => ({ ...prev, isScanning: false, error: null }));
     } else {
-      setState(prev => ({ ...prev, isScanning: true, error: null }));
+      // Starting the scanner as a result of a user click
+      setState(prev => ({ ...prev, isScanning: true, error: null, lastResult: null }));
     }
   };
 
