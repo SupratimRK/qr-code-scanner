@@ -24,6 +24,27 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
 
   const qrReaderId = "qr-reader-container";
 
+  const handleScanResult = (decodedText: string) => {
+    setScanResult(decodedText);
+    const type = getQrContentType(decodedText);
+    addScanToHistory({ data: decodedText, type, isGetmarScan: isGetmarMode });
+    
+    // Auto-redirect for getmar mode web links
+    if (isGetmarMode && type === 'url') {
+      try {
+        // Validate URL before opening
+        new URL(decodedText);
+        // Use small timeout to ensure scan result is saved before redirecting
+        setTimeout(() => openURL(decodedText), 300);
+      } catch (err) {
+        console.error('Invalid URL format in auto-redirect:', err);
+        setError("Invalid URL format detected.");
+      }
+    }
+    
+    setIsScanning(false); // Stop scanning after success
+  };
+
   const startScanner = useCallback(async () => {
     if (!html5QrCodeRef.current) {
       html5QrCodeRef.current = new Html5Qrcode(qrReaderId);
@@ -59,10 +80,7 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
           // Note: rememberLastUsedCamera and supportedScanTypes are not supported in this version
         },
         (decodedText) => {
-          setScanResult(decodedText);
-          const type = getQrContentType(decodedText);
-          addScanToHistory({ data: decodedText, type, isGetmarScan: isGetmarMode });
-          setIsScanning(false); // Stop scanning after success
+          handleScanResult(decodedText);
           qrCode.stop().catch(console.error);
         },
         (errorMessage) => {
@@ -131,9 +149,8 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
     
     try {
       const decodedText = await html5QrCodeRef.current.scanFile(file, false);
-      setScanResult(decodedText);
-      const type = getQrContentType(decodedText);
-      addScanToHistory({ data: decodedText, type, isGetmarScan: isGetmarMode });
+      // Use the same handler for file scanning to maintain consistency
+      handleScanResult(decodedText);
     } catch (err: any) {
       console.error("File scan error:", err);
       setError(`Could not scan QR code from image. ${err.message || 'Ensure the image is clear and contains a valid QR code.'}`);
