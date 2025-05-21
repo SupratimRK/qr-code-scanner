@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Html5Qrcode, Html5QrcodeScannerState, Html5QrcodeSupportedFormats, Html5QrcodeScanType } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
 import { 
   Camera, CameraOff, AlertCircle, Link as LinkIcon, Copy, ExternalLink, ScanLine, CheckCircle2, Info, UploadCloud, FileText, Wifi, User, CalendarDays, MessageSquare, Phone, Mail, MapPin, QrCode as QrCodeIcon
 } from 'lucide-react';
@@ -26,7 +26,7 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
 
   const startScanner = useCallback(async () => {
     if (!html5QrCodeRef.current) {
-      html5QrCodeRef.current = new Html5Qrcode(qrReaderId, { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE] });
+      html5QrCodeRef.current = new Html5Qrcode(qrReaderId);
     }
     
     const qrCode = html5QrCodeRef.current;
@@ -52,12 +52,11 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
           fps: 10,
           qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const qrboxSize = Math.floor(minEdge * 0.7);
+            const qrboxSize = Math.max(Math.floor(minEdge * 0.7), 50);
             return { width: qrboxSize, height: qrboxSize };
           },
-          aspectRatio: 1.0,
-          rememberLastUsedCamera: true,
-          supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA]
+          aspectRatio: 1.0
+          // Note: rememberLastUsedCamera and supportedScanTypes are not supported in this version
         },
         (decodedText) => {
           setScanResult(decodedText);
@@ -73,7 +72,7 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
           }
         }
       );
-      setIsScanning(true);
+      // No need to set isScanning again as it's already set in toggleScanner
     } catch (err: any) {
       console.error("Camera start error:", err);
       if (err.name === "NotAllowedError") {
@@ -83,6 +82,7 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
       } else {
         setError(`Failed to start camera: ${err.message || 'Unknown error'}`);
       }
+      setIsScanning(false);
     } finally {
       setIsLoading(false);
     }
@@ -117,9 +117,16 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
     stopScanner(); // Stop camera if it's running
 
     if (!html5QrCodeRef.current) {
-      // Initialize if not already (e.g. if camera was never started)
-      // We don't need to pass qrReaderId here as we are not rendering a viewfinder for file scan
-      html5QrCodeRef.current = new Html5Qrcode("unused-div-id-for-file-scan", { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE] });
+      // For file scanning, we don't need a viewfinder element
+      // Create a temporary hidden div for the scanner to use
+      const tempElement = document.createElement('div');
+      tempElement.id = 'temp-file-scan-element';
+      tempElement.style.display = 'none';
+      document.body.appendChild(tempElement);
+      
+      html5QrCodeRef.current = new Html5Qrcode('temp-file-scan-element');
+      
+      // We'll clean up this element in the finally block
     }
     
     try {
@@ -130,9 +137,12 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
     } catch (err: any) {
       console.error("File scan error:", err);
       setError(`Could not scan QR code from image. ${err.message || 'Ensure the image is clear and contains a valid QR code.'}`);
-    } finally {
+    }    finally {
       setIsLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = ""; // Reset file input
+      // Clean up the temporary element
+      const elem = document.getElementById('temp-file-scan-element');
+      if (elem) document.body.removeChild(elem);
     }
   };
 
@@ -140,7 +150,11 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
     if (isScanning) {
       stopScanner();
     } else {
-      startScanner();
+      // Set isScanning first so the element exists when startScanner is called
+      setIsScanning(true);
+      setTimeout(() => {
+        startScanner();
+      }, 100); // Small delay to ensure DOM is updated
     }
   };
 
@@ -221,9 +235,20 @@ const QRCodeScannerComponent: React.FC<ScanPageProps> = ({ isGetmarMode }) => {
         </div>
       )}
       
-      <div id={qrReaderId} className={`w-full max-w-md aspect-square rounded-xl overflow-hidden shadow-xl bg-gray-200 dark:bg-gray-800 ${isScanning ? 'block' : 'hidden'}`}>
-        {isScanning && <div className="scanline"></div>}
-      </div>
+      {isScanning ? (
+        <div id={qrReaderId} className="w-full max-w-md aspect-square rounded-xl overflow-hidden shadow-xl bg-gray-200 dark:bg-gray-800 relative">
+          <div className="scanline"></div>
+        </div>
+      ) : (
+        <div className="w-full max-w-md aspect-square rounded-xl overflow-hidden shadow-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+          <div className="text-center p-6">
+            <Camera size={48} className="mx-auto mb-3 opacity-20" />
+            <p className="text-text_light_secondary dark:text-text_dark_secondary">
+              Start the camera to scan a QR code
+            </p>
+          </div>
+        </div>
+      )}
 
 
       {scanResult && (
